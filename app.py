@@ -117,7 +117,7 @@ def _plot_hileras(df_vista, pol_shapely=None):
 
 def _plot_preview(pol_pts, df_hileras, angulo, n_hileras):
     """Polígono + hileras superpuestas. H1 resaltada para identificar punto de inicio."""
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(6, 2))
 
     # Polígono de fondo
     xs = [p[0] for p in pol_pts] + [pol_pts[0][0]]
