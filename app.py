@@ -358,6 +358,7 @@ if df_filt.empty:
 df_calc = calcular_hileras(
     df_filt, largo_minimo, largo_carpa, dist_plantas,
     merma_hil, merma_trans, ancho_carpa, largo_transversal,
+    d_hil=dist_hileras,
 )
 df_calc["N_hilera"] = range(1, len(df_calc) + 1)
 
@@ -365,7 +366,7 @@ if df_calc.empty:
     st.warning(f"Todas las hileras son menores al largo mínimo ({largo_minimo} m).")
     st.stop()
 
-df_res = resumen_sectores(df_calc)
+df_res = resumen_sectores(df_calc, d_hil=dist_hileras, m_hil=merma_hil)
 
 # Indicador de filtrado
 hileras_excluidas = len(df_filt) - len(df_calc)

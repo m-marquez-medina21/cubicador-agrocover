@@ -98,7 +98,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
     for fila, nombre in [(2,"CUMBRERAS"),(3,"PERIMETRO"),(4,"HOMBROS"),(5,"TRANS.")]:
         _c(ws, fila, 13, nombre, negrita=True)
     ws.cell(2, 15, f"=ROUND(E{ft}*(1+$G$8/100),2)")          # cumbreras
-    ws.cell(3, 15, f"=ROUND(K{ft},2)")                        # perímetro
+    ws.cell(3, 15, f"=ROUND(K{ft}+MAX(E{ini}:E{last})*2*(1+$G$8/100),2)")  # perímetro
     ws.cell(4, 15, f"=ROUND(E{ft}*2*(1+$G$8/100),2)")        # hombros
     ws.cell(5, 15, f"=ROUND(P{ft},2)")                        # transversales
 
@@ -148,7 +148,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
     COL_HDRS = [
         "N° hilera","N° plantas","Centrales","Cent. Adic",
         "Largo (m)","Carpas","Uso C (m²)","",
-        "Perimetro","Largo","Uso P (m)","",
+        "Perimetro","Dist. hil","Uso P (m)","",
         "Transversal","hileras","Largo","Uso T (m)",
     ]
     for ci, h in enumerate(COL_HDRS, 1):
@@ -176,8 +176,8 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
             f"=ROUND({E}*$R$2,2)",                        # G  Uso C m²
             "",                                             # H  separador
             2,                                              # I  Perim cant (constante)
-            f"={E}",                                        # J  Largo (= Largo_m)
-            f"=ROUND({E}*2*(1+$G$8/100),2)",              # K  Uso P m
+            "=$E$8",                                        # J  Dist. hileras
+            "=ROUND(2*$E$8*(1+$G$8/100),2)",              # K  Contribución lado corto
             "",                                             # L  separador
             f"=IF({C}>0,{C}+2,0)",                        # M  Trans cant
             1,                                              # N  constante
