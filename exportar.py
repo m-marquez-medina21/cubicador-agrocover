@@ -228,6 +228,7 @@ def crear_excel(df_det: pd.DataFrame, df_res: pd.DataFrame, params: tuple) -> by
         tot = df_res[df_res["Sector"] == sector].iloc[0]
         _hoja_sector(wb, sector, df_s, tot, params)
 
+    wb.calculation.fullCalcOnLoad = True
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()

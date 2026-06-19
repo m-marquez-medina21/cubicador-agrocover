@@ -382,7 +382,7 @@ mc1, mc2, mc3, mc4 = st.columns(4)
 mc1.metric("CUMBRERAS (m)",    round(df_calc["Largo_m"].sum() * factor_h, 2))
 mc2.metric("HOMBROS (m)",      round(df_calc["Largo_m"].sum() * 2 * factor_h, 2))
 mc3.metric("TRANSVERSALES (m)", round(df_calc["Uso_T_m"].sum(), 2))
-mc4.metric("PERIMETRO (m)",    round(df_calc["Uso_P_m"].sum(), 2))
+mc4.metric("PERIMETRO (m)",    round(df_res["Uso_P_total"].sum(), 2))
 
 # ── Resumen por sector ────────────────────────────────────────────────────────
 
