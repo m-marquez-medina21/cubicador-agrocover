@@ -216,7 +216,6 @@ if df_raw.empty and poligonos_dxf:
         if ni_key  not in st.session_state: st.session_state[ni_key]  = float(angulo_auto)
         if of_key  not in st.session_state: st.session_state[of_key]  = 0.0
         if inv_key not in st.session_state: st.session_state[inv_key] = False
-        if inc_key not in st.session_state: st.session_state[inc_key] = True
 
         def _sl_to_ni(sl=sl_key, ni=ni_key):
             st.session_state[ni] = round(st.session_state[sl], 1)
@@ -228,7 +227,7 @@ if df_raw.empty and poligonos_dxf:
             st.sidebar.markdown(f"**— {pol_nombre} —**")
 
         st.sidebar.text_input("Nombre del sector", value=pol_nombre, key=sec_key)
-        st.sidebar.checkbox("Incluir en cálculo", key=inc_key)
+        incluir = st.sidebar.checkbox(f"Incluir '{pol_nombre}'", value=True, key=inc_key)
         st.sidebar.caption(f"Ángulo auto-detectado: **{angulo_auto}°**")
         st.sidebar.slider(
             "Ángulo — ajuste rápido", 0.0, 179.5, step=1.0,
@@ -245,7 +244,7 @@ if df_raw.empty and poligonos_dxf:
         if n_pols > 1:
             st.sidebar.divider()
 
-        if not st.session_state[inc_key]:
+        if not incluir:
             continue
 
         angulo_hil    = st.session_state[ni_key]
