@@ -74,11 +74,12 @@ def generar_hileras_desde_poligono(
     return pd.DataFrame(hileras)
 
 
-def reordenar_hileras(df: pd.DataFrame, invertir: bool = False) -> pd.DataFrame:
+def reordenar_hileras(df: pd.DataFrame, invertir: bool | dict = False) -> pd.DataFrame:
     """
     Ordena las hileras de cada sector por posición espacial (de un borde al opuesto),
     de modo que H1 corresponda a un extremo geográfico definido.
     Útil cuando las hileras vienen de un DXF con orden arbitrario.
+    invertir puede ser bool (aplica a todos) o dict {sector: bool} (por sector).
     """
     if df.empty:
         return df
@@ -86,6 +87,7 @@ def reordenar_hileras(df: pd.DataFrame, invertir: bool = False) -> pd.DataFrame:
     grupos = []
     for sector, grp in df.groupby("Sector", sort=False):
         grp = grp.copy()
+        inv = invertir.get(sector, False) if isinstance(invertir, dict) else invertir
 
         # Centroide de cada hilera
         grp["_cx"] = grp["Puntos"].apply(lambda pts: sum(p[0] for p in pts) / len(pts))
@@ -106,7 +108,7 @@ def reordenar_hileras(df: pd.DataFrame, invertir: bool = False) -> pd.DataFrame:
         perp_y = math.sin(angulo_rad + math.pi / 2)
         grp["_proj"] = grp["_cx"] * perp_x + grp["_cy"] * perp_y
 
-        grp = grp.sort_values("_proj", ascending=not invertir).drop(
+        grp = grp.sort_values("_proj", ascending=not inv).drop(
             columns=["_cx", "_cy", "_proj"]
         )
         grupos.append(grp)

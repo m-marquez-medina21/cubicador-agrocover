@@ -67,15 +67,29 @@ def _hoja_resumen(wb: Workbook, df_res: pd.DataFrame):
 # ── Hoja por sector ───────────────────────────────────────────────────────────
 
 def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
-                 tot: pd.Series, params: tuple,
-                 d_hil_sec: float | None = None, d_pl_sec: float | None = None):
+                 tot: pd.Series, params: tuple, sec_params: dict | None = None):
     ws = wb.create_sheet(title=sector[:31])
+    if sec_params is None:
+        sec_params = {}
 
     (empresa, rut, encargado, dir_c, mail, celular,
      especie, variedad, sup_ha, alt_pl,
      d_hil, d_pl, m_hil, m_trans,
      ancho_c, l_carpa, l_min, alto_p, l_ent, alto_h, caida,
      ancho_vent, l_trans) = params
+
+    # Aplicar valores específicos de sector cuando estén disponibles
+    d_hil    = sec_params.get("d_hil",    d_hil)
+    d_pl     = sec_params.get("d_pl",     d_pl)
+    ancho_c  = sec_params.get("ancho_c",  ancho_c)
+    l_carpa  = sec_params.get("l_carpa",  l_carpa)
+    l_min    = sec_params.get("l_min",    l_min)
+    alto_p   = sec_params.get("alto_p",   alto_p)
+    l_ent    = sec_params.get("l_ent",    l_ent)
+    alto_h   = sec_params.get("alto_h",   alto_h)
+    caida    = sec_params.get("caida",    caida)
+    ancho_vent = sec_params.get("ancho_vent", ancho_vent)
+    l_trans  = sec_params.get("l_trans",  l_trans)
 
     # Rangos de la tabla — calculados antes para usarlos en fórmulas del resumen
     ini  = 16
@@ -134,10 +148,8 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
                      ("D9","Entre plantas:"),("F8","Merma Hileras (%)"),
                      ("F9","Merma Transversales (%)")]:
         _c(ws, ref, valor=txt, negrita=True)
-    _d_hil = d_hil_sec if d_hil_sec is not None else d_hil
-    _d_pl  = d_pl_sec  if d_pl_sec  is not None else d_pl
     for ref, val in [("B7",especie),("B8",variedad),("B9",sup_ha),("B10",alt_pl),
-                     ("E8",_d_hil),("E9",_d_pl),("G8",m_hil),("G9",m_trans)]:
+                     ("E8",d_hil),("E9",d_pl),("G8",m_hil),("G9",m_trans)]:
         ws[ref] = val
 
     # ── Encabezados de tabla ──────────────────────────────────────────────────
@@ -230,8 +242,8 @@ def crear_excel(df_det: pd.DataFrame, df_res: pd.DataFrame, params: tuple,
         df_s = df_det[df_det["Sector"] == sector].copy()
         df_s["N_hilera"] = range(1, len(df_s) + 1)
         tot = df_res[df_res["Sector"] == sector].iloc[0]
-        d_hil_s, d_pl_s = (params_por_sector or {}).get(sector, (None, None))
-        _hoja_sector(wb, sector, df_s, tot, params, d_hil_s, d_pl_s)
+        sec_params = (params_por_sector or {}).get(sector, {})
+        _hoja_sector(wb, sector, df_s, tot, params, sec_params)
 
     wb.calculation.fullCalcOnLoad = True
     buf = BytesIO()

@@ -19,7 +19,7 @@ from readers   import leer_hileras_dxf, leer_kmz
 
 st.set_page_config(page_title="Cubicador Agrocover", layout="wide")
 st.title("Cubicador Agrocover")
-st.write("Versión 2.1")
+st.write("Versión 2.2")
 
 archivo = st.file_uploader(
     "Seleccione archivo DXF o KMZ",
@@ -46,28 +46,35 @@ with st.sidebar.expander("Datos del cultivo", expanded=False):
     superficie_ha  = st.number_input("Superficie (Ha)",        min_value=0.0, value=0.0, step=0.1)
     altura_plantas = st.number_input("Altura de plantas (m)",  min_value=0.0, value=0.0, step=0.1)
 
-st.sidebar.subheader("Marco de plantación")
-dist_hileras = st.sidebar.number_input("Entre hileras (m)", min_value=0.1, value=3.0, step=0.1)
-dist_plantas = st.sidebar.number_input("Entre plantas (m)", min_value=0.1, value=2.0, step=0.1)
-merma_hil    = st.sidebar.number_input("Merma hileras (%)",        min_value=0.0, value=0.0, step=1.0)
-merma_trans  = st.sidebar.number_input("Merma transversales (%)",  min_value=0.0, value=0.0, step=1.0)
+with st.sidebar.expander("Calidad (mermas)", expanded=False):
+    merma_hil   = st.number_input("Merma hileras (%)",       min_value=0.0, value=0.0, step=1.0)
+    merma_trans = st.number_input("Merma transversales (%)", min_value=0.0, value=0.0, step=1.0)
 
-st.sidebar.subheader("Dimensiones de la carpa")
-ancho_carpa     = st.sidebar.number_input("Ancho carpa (m)",       min_value=0.1, value=3.0,  step=0.1)
-largo_carpa     = st.sidebar.number_input("Largo carpa (m)",       min_value=0.1, value=12.0, step=0.5)
-largo_minimo    = st.sidebar.number_input("Largo mínimo (m)",      min_value=0.0, value=5.0,  step=0.5)
-alto_pilares    = st.sidebar.number_input("Alto pilares (m)",      min_value=0.1, value=3.0,  step=0.1)
-largo_enterrado = st.sidebar.number_input("Largo enterrado (m)",   min_value=0.0, value=0.5,  step=0.05)
-alto_hombros    = st.sidebar.number_input("Alto hombros (m)",      min_value=0.0, value=0.5,  step=0.05)
-caida_agua      = st.sidebar.number_input("Caída agua (negativo)", max_value=0.0, value=-0.3, step=0.05)
 
-# Valores derivados
-_a                = math.sqrt(max(ancho_carpa ** 2 - alto_hombros ** 2, 0.0))
-ancho_ventilacion = round(dist_hileras - _a * 2, 3)
-largo_transversal = round(2 * math.sqrt(ancho_carpa ** 2 + alto_hombros ** 2), 3)
+# ── Helper: parámetros de sector ─────────────────────────────────────────────
 
-st.sidebar.markdown(f"**Ancho ventilación:** {ancho_ventilacion} m")
-st.sidebar.markdown(f"**Largo transversal:** {largo_transversal} m")
+def _sector_params_ui(key: str) -> dict:
+    """Widgets de configuración de un sector. Llamar dentro de un expander de sidebar."""
+    st.markdown("**Marco de plantación**")
+    dh = st.number_input("Entre hileras (m)", min_value=0.1, value=3.0, step=0.1,  key=f"dh_{key}")
+    dp = st.number_input("Entre plantas (m)", min_value=0.1, value=2.0, step=0.1,  key=f"dp_{key}")
+    st.markdown("**Dimensiones de la carpa**")
+    ac = st.number_input("Ancho carpa (m)",       min_value=0.1, value=3.0,  step=0.1,  key=f"ac_{key}")
+    lc = st.number_input("Largo carpa (m)",       min_value=0.1, value=12.0, step=0.5,  key=f"lc_{key}")
+    lm = st.number_input("Largo mínimo (m)",      min_value=0.0, value=5.0,  step=0.5,  key=f"lm_{key}")
+    ap = st.number_input("Alto pilares (m)",      min_value=0.1, value=3.0,  step=0.1,  key=f"ap_{key}")
+    le = st.number_input("Largo enterrado (m)",   min_value=0.0, value=0.5,  step=0.05, key=f"le_{key}")
+    ah = st.number_input("Alto hombros (m)",      min_value=0.0, value=0.5,  step=0.05, key=f"ah_{key}")
+    ca = st.number_input("Caída agua (negativo)", max_value=0.0, value=-0.3, step=0.05, key=f"ca_{key}")
+    _a         = math.sqrt(max(ac ** 2 - ah ** 2, 0.0))
+    ancho_vent = round(dh - _a * 2, 3)
+    l_trans    = round(2 * math.sqrt(ac ** 2 + ah ** 2), 3)
+    st.caption(f"Ventilación: **{ancho_vent} m**  |  Transversal: **{l_trans} m**")
+    return {
+        "d_hil": dh, "d_pl": dp, "ancho_c": ac, "l_carpa": lc,
+        "l_min": lm, "alto_p": ap, "l_ent": le, "alto_h": ah,
+        "caida": ca, "ancho_vent": ancho_vent, "l_trans": l_trans,
+    }
 
 
 # ── Helpers de visualización ──────────────────────────────────────────────────
@@ -197,10 +204,11 @@ if df_raw.empty and poligonos_dxf:
         "Ajuste el ángulo en el sidebar hasta que las hileras coincidan con el campo real."
     )
 
-    st.sidebar.subheader("Orientación de hileras")
+    st.sidebar.subheader("Sectores")
+    params_sector = {}
     dfs_generados = []
 
-    for pol_data in poligonos_dxf:
+    for i_pol, pol_data in enumerate(poligonos_dxf):
         pol_nombre  = pol_data["Nombre"]
         pol_pts     = pol_data["Puntos"]
         angulo_auto = round(angulo_lado_mas_largo(pol_pts), 1) % 180
@@ -222,31 +230,25 @@ if df_raw.empty and poligonos_dxf:
         def _ni_to_sl(sl=sl_key, ni=ni_key):
             st.session_state[sl] = st.session_state[ni]
 
-        # ── Controles en sidebar (uno por polígono) ───────────────────────────
-        if n_pols > 1:
-            st.sidebar.markdown(f"**— {pol_nombre} —**")
-
-        st.sidebar.text_input("Nombre del sector", value=pol_nombre, key=sec_key)
-        incluir = st.sidebar.checkbox(f"Incluir '{pol_nombre}'", value=True, key=inc_key)
-        st.sidebar.caption(f"Ángulo auto-detectado: **{angulo_auto}°**")
-        st.sidebar.slider(
-            "Ángulo — ajuste rápido", 0.0, 179.5, step=1.0,
-            key=sl_key, on_change=_sl_to_ni, help="0°=E-O · 90°=N-S",
-        )
-        st.sidebar.number_input(
-            "Ángulo exacto (°)", 0.0, 179.5, step=0.5,
-            key=ni_key, on_change=_ni_to_sl,
-        )
-        st.sidebar.toggle("Invertir H1 (lado opuesto)", key=inv_key)
-        st.sidebar.number_input(
-            "Desplazamiento borde (m)", 0.0, float(dist_hileras), step=0.1, key=of_key,
-        )
-        dh_key = f"dh_pol_{pol_nombre}"
-        dp_key = f"dp_pol_{pol_nombre}"
-        st.sidebar.number_input("Entre hileras (m)", min_value=0.1, value=float(dist_hileras), step=0.1, key=dh_key)
-        st.sidebar.number_input("Entre plantas (m)", min_value=0.1, value=float(dist_plantas), step=0.1, key=dp_key)
-        if n_pols > 1:
-            st.sidebar.divider()
+        # ── Expander por polígono — todos los parámetros de ese sector ────────
+        with st.sidebar.expander(f"📍 {pol_nombre}", expanded=(i_pol == 0)):
+            st.text_input("Nombre del sector", value=pol_nombre, key=sec_key)
+            incluir = st.checkbox("Incluir en cálculo", value=True, key=inc_key)
+            sp = _sector_params_ui(f"pol_{pol_nombre}")
+            st.markdown("**Orientación de hileras**")
+            st.caption(f"Ángulo auto-detectado: **{angulo_auto}°**")
+            st.slider(
+                "Ángulo — ajuste rápido", 0.0, 179.5, step=1.0,
+                key=sl_key, on_change=_sl_to_ni, help="0°=E-O · 90°=N-S",
+            )
+            st.number_input(
+                "Ángulo exacto (°)", 0.0, 179.5, step=0.5,
+                key=ni_key, on_change=_ni_to_sl,
+            )
+            st.toggle("Invertir H1 (lado opuesto)", key=inv_key)
+            st.number_input(
+                "Desplazamiento borde (m)", 0.0, float(sp["d_hil"]), step=0.1, key=of_key,
+            )
 
         if not incluir:
             continue
@@ -255,22 +257,17 @@ if df_raw.empty and poligonos_dxf:
         offset_inicio = st.session_state[of_key]
         invertir      = st.session_state[inv_key]
         sector_nombre = st.session_state[sec_key] or pol_nombre
-        d_hil_pol     = st.session_state[dh_key]
-        d_pl_pol      = st.session_state[dp_key]
 
         df_pol = generar_hileras_desde_poligono(
-            pol_pts, d_hil_pol, angulo_hil, largo_minimo,
+            pol_pts, sp["d_hil"], angulo_hil, sp["l_min"],
             sector_nombre, offset_inicio, invertir,
         )
-        if not df_pol.empty:
-            df_pol["_d_hil"] = d_hil_pol
-            df_pol["_d_pl"]  = d_pl_pol
-
         if df_pol.empty:
             st.warning(f"**{pol_nombre}**: sin hileras con los parámetros actuales.")
             continue
 
         dfs_generados.append(df_pol)
+        params_sector[sector_nombre] = sp
 
         # Vista previa individual por polígono
         if n_pols > 1:
@@ -296,17 +293,17 @@ elif df_raw.empty:
     st.stop()
 
 else:
-    # ── DXF o KMZ con hileras dibujadas: control de orientación H1 ────────────
-    st.sidebar.subheader("Orientación de hileras")
-    inv_key = "invertir_h1_archivo"
-    invertir_h1 = st.sidebar.toggle(
-        "Invertir H1 (iniciar desde el lado opuesto)",
-        key=inv_key,
-        value=False,
-        help="Las hileras se ordenan automáticamente de un borde al otro. "
-             "Active esto para que H1 quede en el extremo contrario.",
-    )
-    df_raw = reordenar_hileras(df_raw, invertir=invertir_h1)
+    # ── DXF o KMZ con hileras dibujadas: configuración por sector ─────────────
+    st.sidebar.subheader("Sectores")
+    params_sector    = {}
+    sectores_archivo = sorted(df_raw["Sector"].unique())
+    for i_sec, sec in enumerate(sectores_archivo):
+        with st.sidebar.expander(f"📍 {sec}", expanded=(i_sec == 0)):
+            sp  = _sector_params_ui(f"sec_{sec}")
+            inv = st.toggle("Invertir H1 (lado opuesto)", key=f"inv_dxf_{sec}", value=False)
+        params_sector[sec] = {**sp, "inv": inv}
+    invertir_map = {sec: ps["inv"] for sec, ps in params_sector.items()}
+    df_raw = reordenar_hileras(df_raw, invertir=invertir_map)
 
 # ── Diagnóstico ───────────────────────────────────────────────────────────────
 
@@ -361,39 +358,23 @@ if df_filt.empty:
     st.warning("No hay hileras con los filtros seleccionados.")
     st.stop()
 
-# ── Marco de plantación por sector ───────────────────────────────────────────
-
-sectores_activos = sorted(df_filt["Sector"].unique().tolist())
-params_sector    = {}
-
-# Para archivos con hileras ya dibujadas (DXF / KMZ con líneas):
-# mostrar controles por sector si hay más de uno.
-if "_d_hil" not in df_filt.columns:
-    if len(sectores_activos) > 1:
-        st.sidebar.subheader("Marco plantación por sector")
-        for sec in sectores_activos:
-            with st.sidebar.expander(f"📍 {sec}"):
-                dh = st.sidebar.number_input("Entre hileras (m)", min_value=0.1,
-                    value=float(dist_hileras), step=0.1, key=f"dh_sec_{sec}")
-                dp = st.sidebar.number_input("Entre plantas (m)", min_value=0.1,
-                    value=float(dist_plantas), step=0.1, key=f"dp_sec_{sec}")
-            params_sector[sec] = (dh, dp)
-    else:
-        params_sector[sectores_activos[0]] = (dist_hileras, dist_plantas)
-else:
-    # KMZ polygon: params ya están en las columnas _d_hil / _d_pl del df
-    for sec in sectores_activos:
-        fila = df_filt[df_filt["Sector"] == sec].iloc[0]
-        params_sector[sec] = (fila["_d_hil"], fila["_d_pl"])
-
 # ── Cálculos por sector ───────────────────────────────────────────────────────
 
+sectores_activos = sorted(df_filt["Sector"].unique().tolist())
+
 dfs_calc = []
-for sec, (dh_s, dp_s) in params_sector.items():
+for sec in sectores_activos:
+    sp     = params_sector.get(sec, {})
     df_sec = df_filt[df_filt["Sector"] == sec].copy()
     df_sec_calc = calcular_hileras(
-        df_sec, largo_minimo, largo_carpa, dp_s,
-        merma_hil, merma_trans, ancho_carpa, largo_transversal, d_hil=dh_s,
+        df_sec,
+        sp.get("l_min",   5.0),
+        sp.get("l_carpa", 12.0),
+        sp.get("d_pl",    2.0),
+        merma_hil, merma_trans,
+        sp.get("ancho_c", 3.0),
+        sp.get("l_trans", 6.0),
+        d_hil=sp.get("d_hil", 3.0),
     )
     df_sec_calc["N_hilera"] = range(1, len(df_sec_calc) + 1)
     dfs_calc.append(df_sec_calc)
@@ -401,7 +382,7 @@ for sec, (dh_s, dp_s) in params_sector.items():
 df_calc = pd.concat(dfs_calc).reset_index(drop=True) if dfs_calc else pd.DataFrame()
 
 if df_calc.empty:
-    st.warning(f"Todas las hileras son menores al largo mínimo ({largo_minimo} m).")
+    st.warning("Todas las hileras son menores al largo mínimo configurado por sector.")
     st.stop()
 
 df_res = resumen_sectores(df_calc, m_hil=merma_hil)
@@ -410,7 +391,7 @@ df_res = resumen_sectores(df_calc, m_hil=merma_hil)
 hileras_excluidas = len(df_filt) - len(df_calc)
 msg = f"**{len(df_calc)} hileras a cubicar**"
 if hileras_excluidas > 0:
-    msg += f" ({hileras_excluidas} excluidas por largo mínimo < {largo_minimo} m)"
+    msg += f" ({hileras_excluidas} excluidas por largo mínimo)"
 st.info(msg)
 
 # ── Totales de materiales ─────────────────────────────────────────────────────
@@ -453,10 +434,8 @@ st.dataframe(df_calc[cols_vista], use_container_width=True)
 params = (
     empresa, rut, encargado, direccion_cliente, mail, celular,
     especie, variedad, superficie_ha, altura_plantas,
-    dist_hileras, dist_plantas, merma_hil, merma_trans,
-    ancho_carpa, largo_carpa, largo_minimo, alto_pilares,
-    largo_enterrado, alto_hombros, caida_agua,
-    ancho_ventilacion, largo_transversal,
+    3.0, 2.0, merma_hil, merma_trans,
+    3.0, 12.0, 5.0, 3.0, 0.5, 0.5, -0.3, 0.0, 6.0,
 )
 excel_bytes = crear_excel(df_calc, df_res, params, params_por_sector=params_sector)
 
