@@ -37,7 +37,7 @@ def calcular_hileras(
     return df
 
 
-def resumen_sectores(df: pd.DataFrame, d_hil: float = 3.0, m_hil: float = 0.0) -> pd.DataFrame:
+def resumen_sectores(df: pd.DataFrame, m_hil: float = 0.0) -> pd.DataFrame:
     """Agrega las métricas de cubicación por sector."""
     factor_h = 1 + m_hil / 100
     res = (
@@ -55,11 +55,11 @@ def resumen_sectores(df: pd.DataFrame, d_hil: float = 3.0, m_hil: float = 0.0) -
             Uso_C_total     = ("Uso_C_m2",       "sum"),
             Trans_total     = ("Trans_cant",     "sum"),
             Uso_T_total     = ("Uso_T_m",        "sum"),
+            # Uso_P_m = d_hil × 2 × factor_h por hilera → SUM = lados cortos totales
+            _uso_p_cortos   = ("Uso_P_m",        "sum"),
         )
         .reset_index()
     )
-    # Perímetro = 2 lados largos (hilera más larga × 2) + 2 lados cortos (n_hileras × dist × 2)
-    res["Uso_P_total"] = (
-        (res["Largo_max_m"] * 2 + res["Hileras"] * d_hil * 2) * factor_h
-    ).round(2)
-    return res.round(2)
+    # Perímetro total = lados cortos (ya en _uso_p_cortos) + lados largos (max_largo × 2 × factor_h)
+    res["Uso_P_total"] = (res["_uso_p_cortos"] + res["Largo_max_m"] * 2 * factor_h).round(2)
+    return res.drop(columns=["_uso_p_cortos"]).round(2)

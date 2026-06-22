@@ -67,7 +67,8 @@ def _hoja_resumen(wb: Workbook, df_res: pd.DataFrame):
 # ── Hoja por sector ───────────────────────────────────────────────────────────
 
 def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
-                 tot: pd.Series, params: tuple):
+                 tot: pd.Series, params: tuple,
+                 d_hil_sec: float | None = None, d_pl_sec: float | None = None):
     ws = wb.create_sheet(title=sector[:31])
 
     (empresa, rut, encargado, dir_c, mail, celular,
@@ -133,8 +134,10 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
                      ("D9","Entre plantas:"),("F8","Merma Hileras (%)"),
                      ("F9","Merma Transversales (%)")]:
         _c(ws, ref, valor=txt, negrita=True)
+    _d_hil = d_hil_sec if d_hil_sec is not None else d_hil
+    _d_pl  = d_pl_sec  if d_pl_sec  is not None else d_pl
     for ref, val in [("B7",especie),("B8",variedad),("B9",sup_ha),("B10",alt_pl),
-                     ("E8",d_hil),("E9",d_pl),("G8",m_hil),("G9",m_trans)]:
+                     ("E8",_d_hil),("E9",_d_pl),("G8",m_hil),("G9",m_trans)]:
         ws[ref] = val
 
     # ── Encabezados de tabla ──────────────────────────────────────────────────
@@ -218,7 +221,8 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
 
 # ── Punto de entrada público ──────────────────────────────────────────────────
 
-def crear_excel(df_det: pd.DataFrame, df_res: pd.DataFrame, params: tuple) -> bytes:
+def crear_excel(df_det: pd.DataFrame, df_res: pd.DataFrame, params: tuple,
+                params_por_sector: dict | None = None) -> bytes:
     wb = Workbook()
     _hoja_resumen(wb, df_res)
 
@@ -226,7 +230,8 @@ def crear_excel(df_det: pd.DataFrame, df_res: pd.DataFrame, params: tuple) -> by
         df_s = df_det[df_det["Sector"] == sector].copy()
         df_s["N_hilera"] = range(1, len(df_s) + 1)
         tot = df_res[df_res["Sector"] == sector].iloc[0]
-        _hoja_sector(wb, sector, df_s, tot, params)
+        d_hil_s, d_pl_s = (params_por_sector or {}).get(sector, (None, None))
+        _hoja_sector(wb, sector, df_s, tot, params, d_hil_s, d_pl_s)
 
     wb.calculation.fullCalcOnLoad = True
     buf = BytesIO()

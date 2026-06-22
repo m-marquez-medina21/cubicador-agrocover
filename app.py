@@ -241,6 +241,10 @@ if df_raw.empty and poligonos_dxf:
         st.sidebar.number_input(
             "Desplazamiento borde (m)", 0.0, float(dist_hileras), step=0.1, key=of_key,
         )
+        dh_key = f"dh_pol_{pol_nombre}"
+        dp_key = f"dp_pol_{pol_nombre}"
+        st.sidebar.number_input("Entre hileras (m)", min_value=0.1, value=float(dist_hileras), step=0.1, key=dh_key)
+        st.sidebar.number_input("Entre plantas (m)", min_value=0.1, value=float(dist_plantas), step=0.1, key=dp_key)
         if n_pols > 1:
             st.sidebar.divider()
 
@@ -251,11 +255,16 @@ if df_raw.empty and poligonos_dxf:
         offset_inicio = st.session_state[of_key]
         invertir      = st.session_state[inv_key]
         sector_nombre = st.session_state[sec_key] or pol_nombre
+        d_hil_pol     = st.session_state[dh_key]
+        d_pl_pol      = st.session_state[dp_key]
 
         df_pol = generar_hileras_desde_poligono(
-            pol_pts, dist_hileras, angulo_hil, largo_minimo,
+            pol_pts, d_hil_pol, angulo_hil, largo_minimo,
             sector_nombre, offset_inicio, invertir,
         )
+        if not df_pol.empty:
+            df_pol["_d_hil"] = d_hil_pol
+            df_pol["_d_pl"]  = d_pl_pol
 
         if df_pol.empty:
             st.warning(f"**{pol_nombre}**: sin hileras con los parámetros actuales.")
@@ -352,20 +361,50 @@ if df_filt.empty:
     st.warning("No hay hileras con los filtros seleccionados.")
     st.stop()
 
-# ── Cálculos ──────────────────────────────────────────────────────────────────
+# ── Marco de plantación por sector ───────────────────────────────────────────
 
-df_calc = calcular_hileras(
-    df_filt, largo_minimo, largo_carpa, dist_plantas,
-    merma_hil, merma_trans, ancho_carpa, largo_transversal,
-    d_hil=dist_hileras,
-)
-df_calc["N_hilera"] = range(1, len(df_calc) + 1)
+sectores_activos = sorted(df_filt["Sector"].unique().tolist())
+params_sector    = {}
+
+# Para archivos con hileras ya dibujadas (DXF / KMZ con líneas):
+# mostrar controles por sector si hay más de uno.
+if "_d_hil" not in df_filt.columns:
+    if len(sectores_activos) > 1:
+        st.sidebar.subheader("Marco plantación por sector")
+        for sec in sectores_activos:
+            with st.sidebar.expander(f"📍 {sec}"):
+                dh = st.sidebar.number_input("Entre hileras (m)", min_value=0.1,
+                    value=float(dist_hileras), step=0.1, key=f"dh_sec_{sec}")
+                dp = st.sidebar.number_input("Entre plantas (m)", min_value=0.1,
+                    value=float(dist_plantas), step=0.1, key=f"dp_sec_{sec}")
+            params_sector[sec] = (dh, dp)
+    else:
+        params_sector[sectores_activos[0]] = (dist_hileras, dist_plantas)
+else:
+    # KMZ polygon: params ya están en las columnas _d_hil / _d_pl del df
+    for sec in sectores_activos:
+        fila = df_filt[df_filt["Sector"] == sec].iloc[0]
+        params_sector[sec] = (fila["_d_hil"], fila["_d_pl"])
+
+# ── Cálculos por sector ───────────────────────────────────────────────────────
+
+dfs_calc = []
+for sec, (dh_s, dp_s) in params_sector.items():
+    df_sec = df_filt[df_filt["Sector"] == sec].copy()
+    df_sec_calc = calcular_hileras(
+        df_sec, largo_minimo, largo_carpa, dp_s,
+        merma_hil, merma_trans, ancho_carpa, largo_transversal, d_hil=dh_s,
+    )
+    df_sec_calc["N_hilera"] = range(1, len(df_sec_calc) + 1)
+    dfs_calc.append(df_sec_calc)
+
+df_calc = pd.concat(dfs_calc).reset_index(drop=True) if dfs_calc else pd.DataFrame()
 
 if df_calc.empty:
     st.warning(f"Todas las hileras son menores al largo mínimo ({largo_minimo} m).")
     st.stop()
 
-df_res = resumen_sectores(df_calc, d_hil=dist_hileras, m_hil=merma_hil)
+df_res = resumen_sectores(df_calc, m_hil=merma_hil)
 
 # Indicador de filtrado
 hileras_excluidas = len(df_filt) - len(df_calc)
@@ -419,7 +458,7 @@ params = (
     largo_enterrado, alto_hombros, caida_agua,
     ancho_ventilacion, largo_transversal,
 )
-excel_bytes = crear_excel(df_calc, df_res, params)
+excel_bytes = crear_excel(df_calc, df_res, params, params_por_sector=params_sector)
 
 st.download_button(
     label="Descargar cubicación en Excel",
