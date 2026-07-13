@@ -1,6 +1,6 @@
 # exportar.py — Generación del archivo Excel de cubicación.
 # Modificar aquí si cambia el formato de la hoja, las fórmulas Excel, columnas o estilos.
-# Las referencias de parámetros en las fórmulas son: B13=largo_carpa, E9=dist_plantas,
+# Las referencias de parámetros en las fórmulas son: B13=largo_carpa (informativo), E9=dist_plantas,
 # G8=merma_hil(%), G9=merma_trans(%), R2=ancho_carpa, R10=largo_transversal.
 
 from io import BytesIO
@@ -76,7 +76,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
      especie, variedad, sup_ha, alt_pl,
      d_hil, d_pl, m_hil, m_trans,
      ancho_c, l_carpa, l_min, alto_p, l_ent, alto_h, caida,
-     ancho_vent, l_trans) = params
+     ancho_vent, l_trans, cent_adic) = params
 
     # Aplicar valores específicos de sector cuando estén disponibles
     d_hil    = sec_params.get("d_hil",    d_hil)
@@ -90,6 +90,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
     caida    = sec_params.get("caida",    caida)
     ancho_vent = sec_params.get("ancho_vent", ancho_vent)
     l_trans  = sec_params.get("l_trans",  l_trans)
+    cent_adic = sec_params.get("cent_adic", cent_adic)
 
     # Rangos de la tabla — calculados antes para usarlos en fórmulas del resumen
     ini  = 16
@@ -133,6 +134,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
         ("Caída agua",        caida,     "m"),
         ("Ancho ventilación", ancho_vent,"m"),
         ("Largo transversal", l_trans,   "m"),   # R10 — referenciado en fórmulas
+        ("Centrales adicionales", cent_adic, "un"),
     ]
     for fi, (nombre, valor, unidad) in enumerate(carpa_params, 2):
         ws.cell(fi, 17, nombre).font = Font(bold=True)
@@ -155,7 +157,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
     # ── Encabezados de tabla ──────────────────────────────────────────────────
     ws["A12"] = f"Cuartel: {sector}"; ws["A12"].font = Font(bold=True)
     ws["A13"] = "Dist. centrales:";   ws["A13"].font = Font(bold=True)
-    ws["B13"] = l_carpa   # ← referenciado como $B$13 en fórmulas de Centrales
+    ws["B13"] = l_carpa   # informativo — Centrales ya viene calculado desde Python (proyección geométrica)
     for ref, txt in [("I12","PERIMETRO"),("M12","TRANSVERSAL"),
                      ("I14","Total"),("M14","Total")]:
         _c(ws, ref, valor=txt, negrita=True)
@@ -184,8 +186,8 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
         vals = [
             int(row["N_hilera"]),                          # A  valor fijo
             f"=ROUND({E}/$E$9,2)",                         # B  N_plantas
-            f"=INT({E}/$B$13)",                            # C  Centrales
-            2,                                              # D  Cent. Adic (constante)
+            int(row["Centrales"]),                          # C  Centrales (proyectado desde la hilera más larga, calculado en Python)
+            cent_adic,                                       # D  Cent. Adic
             row["Largo_m"],                                 # E  Largo medido (dato base)
             f"=IF({C}>0,{C}+1,0)",                        # F  Carpas
             f"=ROUND({E}*$R$2,2)",                        # G  Uso C m²

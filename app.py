@@ -62,6 +62,7 @@ def _sector_params_ui(key: str) -> dict:
     ac = st.number_input("Ancho carpa (m)",       min_value=0.1, value=3.0,  step=0.1,  key=f"ac_{key}")
     lc = st.number_input("Largo carpa (m)",       min_value=0.1, value=12.0, step=0.5,  key=f"lc_{key}")
     lm = st.number_input("Largo mínimo (m)",      min_value=0.0, value=5.0,  step=0.5,  key=f"lm_{key}")
+    cadic = st.number_input("Centrales adicionales", min_value=0, value=0, step=1, key=f"cadic_{key}")
     ap = st.number_input("Alto pilares (m)",      min_value=0.1, value=3.0,  step=0.1,  key=f"ap_{key}")
     le = st.number_input("Largo enterrado (m)",   min_value=0.0, value=0.5,  step=0.05, key=f"le_{key}")
     ah = st.number_input("Alto hombros (m)",      min_value=0.0, value=0.5,  step=0.05, key=f"ah_{key}")
@@ -74,6 +75,7 @@ def _sector_params_ui(key: str) -> dict:
         "d_hil": dh, "d_pl": dp, "ancho_c": ac, "l_carpa": lc,
         "l_min": lm, "alto_p": ap, "l_ent": le, "alto_h": ah,
         "caida": ca, "ancho_vent": ancho_vent, "l_trans": l_trans,
+        "cent_adic": cadic,
     }
 
 
@@ -375,6 +377,7 @@ for sec in sectores_activos:
         sp.get("ancho_c", 3.0),
         sp.get("l_trans", 6.0),
         d_hil=sp.get("d_hil", 3.0),
+        centrales_adic=sp.get("cent_adic", 0.0),
     )
     df_sec_calc["N_hilera"] = range(1, len(df_sec_calc) + 1)
     dfs_calc.append(df_sec_calc)
@@ -435,7 +438,7 @@ params = (
     empresa, rut, encargado, direccion_cliente, mail, celular,
     especie, variedad, superficie_ha, altura_plantas,
     3.0, 2.0, merma_hil, merma_trans,
-    3.0, 12.0, 5.0, 3.0, 0.5, 0.5, -0.3, 0.0, 6.0,
+    3.0, 12.0, 5.0, 3.0, 0.5, 0.5, -0.3, 0.0, 6.0, 0,
 )
 excel_bytes = crear_excel(df_calc, df_res, params, params_por_sector=params_sector)
 

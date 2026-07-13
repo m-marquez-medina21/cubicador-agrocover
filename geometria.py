@@ -74,6 +74,52 @@ def generar_hileras_desde_poligono(
     return pd.DataFrame(hileras)
 
 
+def centrales_proyectados(df: pd.DataFrame, l_carpa: float) -> pd.Series:
+    """
+    Cuenta los centrales (postes interiores) de cada hilera proyectando líneas de
+    corte perpendiculares cada l_carpa metros a lo largo de la hilera más larga del
+    sector, y contando cuántas de esas líneas intersectan a cada hilera dentro del
+    polígono — aunque esa hilera no empiece en el mismo punto que la más larga
+    (bordes irregulares, terrenos no rectangulares).
+    """
+    if df.empty:
+        return pd.Series([], dtype=int)
+
+    idx_ref = df["Largo_m"].idxmax()
+    p0, p1  = df.loc[idx_ref, "Puntos"][0], df.loc[idx_ref, "Puntos"][-1]
+    dx, dy  = p1[0] - p0[0], p1[1] - p0[1]
+    largo_ref = math.hypot(dx, dy)
+
+    if largo_ref == 0:
+        return pd.Series([0] * len(df), index=df.index)
+
+    dirx, diry   = dx / largo_ref, dy / largo_ref
+    perpx, perpy = -diry, dirx
+
+    todas_pts = [p for pts in df["Puntos"] for p in pts]
+    xs = [p[0] for p in todas_pts]
+    ys = [p[1] for p in todas_pts]
+    extension = math.hypot(max(xs) - min(xs), max(ys) - min(ys)) + 1
+
+    n_cortes = int(largo_ref // l_carpa)
+    cortes = []
+    for i in range(1, n_cortes + 1):
+        t  = i * l_carpa
+        cx = p0[0] + dirx * t
+        cy = p0[1] + diry * t
+        cortes.append(LineString([
+            (cx - perpx * extension, cy - perpy * extension),
+            (cx + perpx * extension, cy + perpy * extension),
+        ]))
+
+    conteos = []
+    for pts in df["Puntos"]:
+        linea = LineString(pts)
+        conteos.append(sum(1 for corte in cortes if linea.intersects(corte)))
+
+    return pd.Series(conteos, index=df.index)
+
+
 def reordenar_hileras(df: pd.DataFrame, invertir: bool | dict = False) -> pd.DataFrame:
     """
     Ordena las hileras de cada sector por posición espacial (de un borde al opuesto),
