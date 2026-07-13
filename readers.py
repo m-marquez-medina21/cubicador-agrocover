@@ -77,25 +77,25 @@ def _kml_coords(texto: str | None) -> list:
     return puntos
 
 
-def _utm_transformer(lons: list, lats: list) -> Transformer:
+def _epsg_utm(lons: list, lats: list) -> int:
     lon_c = sum(lons) / len(lons)
     lat_c = sum(lats) / len(lats)
     zona  = int((lon_c + 180) / 6) + 1
-    epsg  = 32600 + zona if lat_c >= 0 else 32700 + zona
-    return Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+    return 32600 + zona if lat_c >= 0 else 32700 + zona
 
 
-def leer_kmz(ruta: str) -> tuple[pd.DataFrame, list]:
+def leer_kmz(ruta: str) -> tuple[pd.DataFrame, list, int | None]:
     """
     Lee un KMZ y devuelve:
     - DataFrame de hileras si el KMZ contiene LineStrings
     - lista de polígonos si el KMZ contiene Polygons
+    - código EPSG de la proyección UTM usada (None si el archivo no tiene datos)
     Las coordenadas se proyectan automáticamente a UTM (metros).
     """
     with zipfile.ZipFile(ruta) as z:
         kml_file = next((n for n in z.namelist() if n.lower().endswith(".kml")), None)
         if kml_file is None:
-            return pd.DataFrame(), []
+            return pd.DataFrame(), [], None
         kml_bytes = z.read(kml_file)
 
     root = ET.fromstring(kml_bytes)
@@ -131,13 +131,16 @@ def leer_kmz(ruta: str) -> tuple[pd.DataFrame, list]:
         _placemark(pm, "Sin sector")
 
     if not hileras_raw and not poligonos_raw:
-        return pd.DataFrame(), []
+        return pd.DataFrame(), [], None
 
     todas = (
         [c for h in hileras_raw  for c in h["coords"]] +
         [c for p in poligonos_raw for c in p["coords"]]
     )
-    transformer = _utm_transformer([c[0] for c in todas], [c[1] for c in todas])
+    lons = [c[0] for c in todas]
+    lats = [c[1] for c in todas]
+    epsg = _epsg_utm(lons, lats)
+    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
 
     def proyectar(coords):
         return [transformer.transform(lon, lat) for lon, lat in coords]
@@ -157,4 +160,4 @@ def leer_kmz(ruta: str) -> tuple[pd.DataFrame, list]:
         for p in poligonos_raw
     ]
 
-    return pd.DataFrame(hileras), poligonos
+    return pd.DataFrame(hileras), poligonos, epsg

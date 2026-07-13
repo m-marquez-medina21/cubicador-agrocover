@@ -136,11 +136,6 @@ def transversales_proyectados(df: pd.DataFrame, l_carpa: float, angulo_offset: f
 
     resultado = []
     for i in range(i_ini, i_fin + 1):
-        if i == 0:
-            # t=0 es el inicio propio de la hilera de referencia: ya se cuenta
-            # como uno de sus dos extremos (Centrales_Adic / Trans_cant +2),
-            # no como central interior — igual que en el rango original.
-            continue
         t  = i * l_carpa
         cx = p0[0] + dirx * t
         cy = p0[1] + diry * t

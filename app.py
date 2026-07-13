@@ -5,10 +5,13 @@
 import math
 import tempfile
 
+import folium
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from pyproj import Transformer
 from shapely.geometry import LineString, Polygon
+from streamlit_folium import folium_static
 
 from calculos  import calcular_hileras, resumen_sectores
 from exportar  import crear_excel
@@ -108,6 +111,115 @@ def _dibujar_transversales(ax, df_hileras, l_carpa, angulo_offset=0.0):
         ax.scatter(px, py, s=4, color="darkorange", alpha=0.8, zorder=6)
 
 
+_TAB10_HEX = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+]
+
+
+def _a_latlon(transformer, pts):
+    """Convierte una lista de puntos UTM (x, y) a pares (lat, lon) para Folium."""
+    return [(lat, lon) for lon, lat in transformer.itransform(pts)]
+
+
+def _mapa_base(centro_latlon):
+    """Mapa Folium con capa satelital (Esri) y mapa base (OSM) intercambiables,
+    con zoom y desplazamiento interactivos — igual que Google Earth."""
+    m = folium.Map(location=centro_latlon, zoom_start=17, tiles=None, control_scale=True)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Tiles &copy; Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, "
+             "Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
+        name="Satelital (Esri)",
+        max_zoom=19,
+        show=True,
+    ).add_to(m)
+    folium.TileLayer("OpenStreetMap", name="Mapa (OSM)", show=False).add_to(m)
+    return m
+
+
+def _agregar_transversales_folium(m, transformer, df_hileras, l_carpa, angulo_offset):
+    if not l_carpa or df_hileras.empty:
+        return
+    fg = folium.FeatureGroup(name="Transversales proyectados")
+    for c in transversales_proyectados(df_hileras, l_carpa, angulo_offset):
+        folium.PolyLine(
+            _a_latlon(transformer, list(c["segmento"].coords)),
+            color="darkorange", weight=1.5, opacity=0.8, dash_array="4,4",
+        ).add_to(fg)
+    fg.add_to(m)
+
+
+def _mapa_preview_folium(pol_pts, df_hileras, angulo, n_hileras, epsg, l_carpa=None, angulo_trans=0.0):
+    """Equivalente interactivo de _plot_preview: polígono + hileras generadas sobre
+    imagen satelital real, con zoom/desplazamiento como Google Earth."""
+    transformer = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
+    centro = _a_latlon(transformer, [Polygon(pol_pts).centroid.coords[0]])[0]
+    m = _mapa_base(centro)
+
+    folium.PolyLine(
+        _a_latlon(transformer, pol_pts + [pol_pts[0]]),
+        color="lime", weight=2.5, tooltip="Contorno del terreno",
+    ).add_to(m)
+
+    fg_hileras = folium.FeatureGroup(name=f"Hileras ({n_hileras})")
+    for i, (_, row) in enumerate(df_hileras.iterrows()):
+        pts = _a_latlon(transformer, row["Puntos"])
+        if i == 0:
+            folium.PolyLine(pts, color="red", weight=4, tooltip="H1 (primera hilera)").add_to(fg_hileras)
+        else:
+            folium.PolyLine(pts, color="cyan", weight=1.5, opacity=0.8).add_to(fg_hileras)
+    fg_hileras.add_to(m)
+
+    _agregar_transversales_folium(m, transformer, df_hileras, l_carpa, angulo_trans)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+    try:
+        m.fit_bounds(m.get_bounds())
+    except Exception:
+        pass
+    return m
+
+
+def _mapa_resultados_folium(df_vista, epsg, pol_shapely=None, l_carpa=None, angulo_trans=0.0):
+    """Equivalente interactivo de _plot_hileras: hileras calculadas sobre imagen
+    satelital real, con zoom/desplazamiento como Google Earth."""
+    transformer = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
+    centro = _a_latlon(transformer, [df_vista.iloc[0]["Puntos"][0]])[0]
+    m = _mapa_base(centro)
+
+    if pol_shapely is not None:
+        folium.PolyLine(
+            _a_latlon(transformer, list(pol_shapely.exterior.coords)),
+            color="lime", weight=2, dash_array="6,4", tooltip="Polígono terreno",
+        ).add_to(m)
+
+    n_h1     = df_vista["N_hilera"].min()
+    bloques  = list(df_vista["Bloque"].unique())
+    colores  = {b: _TAB10_HEX[i % len(_TAB10_HEX)] for i, b in enumerate(bloques)}
+
+    fg_hileras = folium.FeatureGroup(name="Hileras")
+    for _, row in df_vista.iterrows():
+        pts = _a_latlon(transformer, row["Puntos"])
+        if row["N_hilera"] == n_h1:
+            folium.PolyLine(pts, color="red", weight=4, tooltip="H1 (primera hilera)").add_to(fg_hileras)
+        else:
+            folium.PolyLine(
+                pts, color=colores[row["Bloque"]], weight=1.5, opacity=0.85,
+                tooltip=f"Hilera {int(row['N_hilera'])} · {row['Largo_m']} m · {row['Bloque']}",
+            ).add_to(fg_hileras)
+    fg_hileras.add_to(m)
+
+    _agregar_transversales_folium(m, transformer, df_vista, l_carpa, angulo_trans)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+    try:
+        m.fit_bounds(m.get_bounds())
+    except Exception:
+        pass
+    return m
+
+
 def _plot_hileras(df_vista, pol_shapely=None, l_carpa=None, angulo_trans=0.0):
     bloques  = df_vista["Bloque"].unique()
     _tab10   = [plt.cm.tab10(i) for i in range(10)]
@@ -154,7 +266,8 @@ def _plot_hileras(df_vista, pol_shapely=None, l_carpa=None, angulo_trans=0.0):
 
 
 def _plot_preview(pol_pts, df_hileras, angulo, n_hileras, l_carpa=None, angulo_trans=0.0):
-    """Polígono + hileras superpuestas. H1 resaltada para identificar punto de inicio."""
+    """Polígono + hileras superpuestas (fallback sin georreferencia). H1 resaltada
+    para identificar punto de inicio."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # Polígono de fondo
@@ -223,7 +336,11 @@ with tempfile.NamedTemporaryFile(delete=False, suffix=sufijo) as tmp:
     tmp.write(archivo.read())
     ruta_tmp = tmp.name
 
-df_raw, poligonos_dxf = leer_kmz(ruta_tmp) if es_kmz else leer_hileras_dxf(ruta_tmp)
+if es_kmz:
+    df_raw, poligonos_dxf, epsg_kmz = leer_kmz(ruta_tmp)
+else:
+    df_raw, poligonos_dxf = leer_hileras_dxf(ruta_tmp)
+    epsg_kmz = None
 st.success(f"Archivo cargado: {archivo.name}")
 
 # ── Caso: KMZ con polígono(s) → generar hileras ──────────────────────────────
@@ -305,10 +422,16 @@ if df_raw.empty and poligonos_dxf:
         # Vista previa individual por polígono
         if n_pols > 1:
             st.subheader(f"Vista previa — {sector_nombre}")
-        st.pyplot(_plot_preview(
-            pol_pts, df_pol, angulo_hil, len(df_pol),
-            l_carpa=sp["l_carpa"], angulo_trans=sp.get("ang_trans", 0.0),
-        ))
+        if epsg_kmz:
+            folium_static(_mapa_preview_folium(
+                pol_pts, df_pol, angulo_hil, len(df_pol), epsg_kmz,
+                l_carpa=sp["l_carpa"], angulo_trans=sp.get("ang_trans", 0.0),
+            ), height=550)
+        else:
+            st.pyplot(_plot_preview(
+                pol_pts, df_pol, angulo_hil, len(df_pol),
+                l_carpa=sp["l_carpa"], angulo_trans=sp.get("ang_trans", 0.0),
+            ))
         st.caption(
             f"**{sector_nombre}**: {len(df_pol)} hileras · ángulo {angulo_hil}° · "
             f"offset {offset_inicio} m · {'invertida' if invertir else 'normal'}"
@@ -456,9 +579,16 @@ df_vista     = df_calc[df_calc["Sector"] == sector_vista]
 sp_vista      = params_sector.get(sector_vista, {})
 l_carpa_vista = sp_vista.get("l_carpa", 12.0)
 ang_trans_vista = sp_vista.get("ang_trans", 0.0)
-fig = _plot_hileras(df_vista, pol_shapely, l_carpa=l_carpa_vista, angulo_trans=ang_trans_vista)
-fig.axes[0].set_title(f"Hileras medidas — {sector_vista}")
-st.pyplot(fig)
+
+if epsg_kmz:
+    folium_static(_mapa_resultados_folium(
+        df_vista, epsg_kmz, pol_shapely=pol_shapely,
+        l_carpa=l_carpa_vista, angulo_trans=ang_trans_vista,
+    ), height=550)
+else:
+    fig = _plot_hileras(df_vista, pol_shapely, l_carpa=l_carpa_vista, angulo_trans=ang_trans_vista)
+    fig.axes[0].set_title(f"Hileras medidas — {sector_vista}")
+    st.pyplot(fig)
 
 # ── Detalle de hileras ────────────────────────────────────────────────────────
 
