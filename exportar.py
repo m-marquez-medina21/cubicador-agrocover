@@ -76,7 +76,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
      especie, variedad, sup_ha, alt_pl,
      d_hil, d_pl, m_hil, m_trans,
      ancho_c, l_carpa, l_min, alto_p, l_ent, alto_h, caida,
-     ancho_vent, l_trans, cent_adic) = params
+     ancho_vent, l_trans, cent_adic, ang_trans) = params
 
     # Aplicar valores específicos de sector cuando estén disponibles
     d_hil    = sec_params.get("d_hil",    d_hil)
@@ -91,6 +91,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
     ancho_vent = sec_params.get("ancho_vent", ancho_vent)
     l_trans  = sec_params.get("l_trans",  l_trans)
     cent_adic = sec_params.get("cent_adic", cent_adic)
+    ang_trans = sec_params.get("ang_trans", ang_trans)
 
     # Rangos de la tabla — calculados antes para usarlos en fórmulas del resumen
     ini  = 16
@@ -135,6 +136,7 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
         ("Ancho ventilación", ancho_vent,"m"),
         ("Largo transversal", l_trans,   "m"),   # R10 — referenciado en fórmulas
         ("Centrales adicionales", cent_adic, "un"),
+        ("Ángulo transversal",    ang_trans, "°"),
     ]
     for fi, (nombre, valor, unidad) in enumerate(carpa_params, 2):
         ws.cell(fi, 17, nombre).font = Font(bold=True)

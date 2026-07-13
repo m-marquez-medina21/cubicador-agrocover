@@ -19,6 +19,7 @@ def calcular_hileras(
     l_trans: float,
     d_hil: float = 3.0,
     centrales_adic: float = 0.0,
+    angulo_trans: float = 0.0,
 ) -> pd.DataFrame:
     """Aplica el filtro de largo mínimo y calcula todas las columnas de cubicación."""
     df = df[df["Largo_m"] >= l_minimo].copy()
@@ -26,7 +27,7 @@ def calcular_hileras(
     factor_t = 1 + m_trans  / 100
 
     df["N_plantas"]      = (df["Largo_m"] / d_plantas).round(2)
-    df["Centrales"]      = centrales_proyectados(df, l_carpa)
+    df["Centrales"]      = centrales_proyectados(df, l_carpa, angulo_trans)
     df["Centrales_Adic"] = centrales_adic
     df["Carpas"]         = (df["Centrales"] + 1).where(df["Centrales"] > 0, 0)
     df["Uso_C_m2"]       = (df["Largo_m"] * ancho_c).round(2)

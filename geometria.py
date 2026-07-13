@@ -74,16 +74,31 @@ def generar_hileras_desde_poligono(
     return pd.DataFrame(hileras)
 
 
-def centrales_proyectados(df: pd.DataFrame, l_carpa: float) -> pd.Series:
+def transversales_proyectados(df: pd.DataFrame, l_carpa: float, angulo_offset: float = 0.0) -> list:
     """
-    Cuenta los centrales (postes interiores) de cada hilera proyectando líneas de
-    corte perpendiculares cada l_carpa metros a lo largo de la hilera más larga del
-    sector, y contando cuántas de esas líneas intersectan a cada hilera dentro del
-    polígono — aunque esa hilera no empiece en el mismo punto que la más larga
-    (bordes irregulares, terrenos no rectangulares).
+    Proyecta líneas de corte cada l_carpa metros a lo largo de la dirección de la
+    hilera más larga del sector, y calcula dónde cruza cada una a las demás
+    hileras — aunque no empiecen en el mismo punto que la más larga (bordes
+    irregulares, terrenos no rectangulares).
+
+    El rango de posiciones cubierto no se limita al largo propio de la hilera de
+    referencia: se extiende para cubrir todas las hileras del sector, de modo que
+    las esquinas donde la hilera más larga no llega (terrenos trapezoidales) igual
+    reciban transversales.
+
+    Por defecto el corte es perpendicular a la hilera de referencia; angulo_offset
+    (grados) rota esa dirección para corregir el ángulo del transversal cuando no
+    es exactamente perpendicular en terreno. La posición de cada corte a lo largo
+    de la hilera (cada l_carpa metros) no cambia con el offset.
+
+    Retorna una lista de dicts, uno por corte con al menos una intersección:
+    {"segmento": LineString (acotado a las intersecciones encontradas),
+     "puntos": [(x, y), ...]}
+    Útil tanto para contar centrales (centrales_proyectados) como para
+    visualizar la posición/ángulo de los transversales en el plano.
     """
     if df.empty:
-        return pd.Series([], dtype=int)
+        return []
 
     idx_ref = df["Largo_m"].idxmax()
     p0, p1  = df.loc[idx_ref, "Puntos"][0], df.loc[idx_ref, "Puntos"][-1]
@@ -91,31 +106,90 @@ def centrales_proyectados(df: pd.DataFrame, l_carpa: float) -> pd.Series:
     largo_ref = math.hypot(dx, dy)
 
     if largo_ref == 0:
-        return pd.Series([0] * len(df), index=df.index)
+        return []
 
     dirx, diry   = dx / largo_ref, dy / largo_ref
     perpx, perpy = -diry, dirx
 
     todas_pts = [p for pts in df["Puntos"] for p in pts]
+
+    # Rango de posiciones (a lo largo de la dirección de las hileras) cubierto por
+    # TODAS las hileras del sector, no solo la de referencia.
+    todos_t = [(p[0] - p0[0]) * dirx + (p[1] - p0[1]) * diry for p in todas_pts]
+    t_min, t_max = min(todos_t), max(todos_t)
+
+    if angulo_offset:
+        rad = math.radians(angulo_offset)
+        cos_a, sin_a = math.cos(rad), math.sin(rad)
+        perpx, perpy = (
+            perpx * cos_a - perpy * sin_a,
+            perpx * sin_a + perpy * cos_a,
+        )
+
     xs = [p[0] for p in todas_pts]
     ys = [p[1] for p in todas_pts]
     extension = math.hypot(max(xs) - min(xs), max(ys) - min(ys)) + 1
 
-    n_cortes = int(largo_ref // l_carpa)
-    cortes = []
-    for i in range(1, n_cortes + 1):
+    lineas_hileras = [LineString(pts) for pts in df["Puntos"]]
+    i_ini = math.ceil(t_min / l_carpa)
+    i_fin = math.floor(t_max / l_carpa)
+
+    resultado = []
+    for i in range(i_ini, i_fin + 1):
+        if i == 0:
+            # t=0 es el inicio propio de la hilera de referencia: ya se cuenta
+            # como uno de sus dos extremos (Centrales_Adic / Trans_cant +2),
+            # no como central interior — igual que en el rango original.
+            continue
         t  = i * l_carpa
         cx = p0[0] + dirx * t
         cy = p0[1] + diry * t
-        cortes.append(LineString([
+        corte = LineString([
             (cx - perpx * extension, cy - perpy * extension),
             (cx + perpx * extension, cy + perpy * extension),
-        ]))
+        ])
 
+        puntos = []
+        for linea in lineas_hileras:
+            inter = linea.intersection(corte)
+            if inter.is_empty:
+                continue
+            if inter.geom_type == "Point":
+                puntos.append((inter.x, inter.y))
+            elif inter.geom_type == "MultiPoint":
+                puntos.extend((g.x, g.y) for g in inter.geoms)
+
+        if not puntos:
+            continue
+
+        # Acotar el segmento dibujable al rango real de intersecciones (+ margen)
+        proyecciones = sorted(puntos, key=lambda p: p[0] * perpx + p[1] * perpy)
+        (xa, ya), (xb, yb) = proyecciones[0], proyecciones[-1]
+        margen = max(l_carpa * 0.05, 0.3)
+        segmento = LineString([
+            (xa - perpx * margen, ya - perpy * margen),
+            (xb + perpx * margen, yb + perpy * margen),
+        ])
+
+        resultado.append({"segmento": segmento, "puntos": puntos})
+
+    return resultado
+
+
+def centrales_proyectados(df: pd.DataFrame, l_carpa: float, angulo_offset: float = 0.0) -> pd.Series:
+    """
+    Cuenta los centrales (postes interiores) de cada hilera: para cada hilera,
+    cuántos de los cortes transversales proyectados (transversales_proyectados)
+    la cruzan dentro del polígono.
+    """
+    if df.empty:
+        return pd.Series([], dtype=int)
+
+    cortes = transversales_proyectados(df, l_carpa, angulo_offset)
     conteos = []
     for pts in df["Puntos"]:
         linea = LineString(pts)
-        conteos.append(sum(1 for corte in cortes if linea.intersects(corte)))
+        conteos.append(sum(1 for c in cortes if linea.intersects(c["segmento"])))
 
     return pd.Series(conteos, index=df.index)
 

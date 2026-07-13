@@ -12,7 +12,12 @@ from shapely.geometry import LineString, Polygon
 
 from calculos  import calcular_hileras, resumen_sectores
 from exportar  import crear_excel
-from geometria import angulo_lado_mas_largo, generar_hileras_desde_poligono, reordenar_hileras
+from geometria import (
+    angulo_lado_mas_largo,
+    generar_hileras_desde_poligono,
+    reordenar_hileras,
+    transversales_proyectados,
+)
 from readers   import leer_hileras_dxf, leer_kmz
 
 # ── Configuración ─────────────────────────────────────────────────────────────
@@ -63,6 +68,11 @@ def _sector_params_ui(key: str) -> dict:
     lc = st.number_input("Largo carpa (m)",       min_value=0.1, value=12.0, step=0.5,  key=f"lc_{key}")
     lm = st.number_input("Largo mínimo (m)",      min_value=0.0, value=5.0,  step=0.5,  key=f"lm_{key}")
     cadic = st.number_input("Centrales adicionales", min_value=0, value=0, step=1, key=f"cadic_{key}")
+    at = st.number_input(
+        "Ángulo transversal (° respecto a perpendicular)",
+        min_value=-45.0, max_value=45.0, value=0.0, step=0.5, key=f"at_{key}",
+        help="Corrige el ángulo del transversal cuando no es exactamente perpendicular a las hileras.",
+    )
     ap = st.number_input("Alto pilares (m)",      min_value=0.1, value=3.0,  step=0.1,  key=f"ap_{key}")
     le = st.number_input("Largo enterrado (m)",   min_value=0.0, value=0.5,  step=0.05, key=f"le_{key}")
     ah = st.number_input("Alto hombros (m)",      min_value=0.0, value=0.5,  step=0.05, key=f"ah_{key}")
@@ -75,13 +85,30 @@ def _sector_params_ui(key: str) -> dict:
         "d_hil": dh, "d_pl": dp, "ancho_c": ac, "l_carpa": lc,
         "l_min": lm, "alto_p": ap, "l_ent": le, "alto_h": ah,
         "caida": ca, "ancho_vent": ancho_vent, "l_trans": l_trans,
-        "cent_adic": cadic,
+        "cent_adic": cadic, "ang_trans": at,
     }
 
 
 # ── Helpers de visualización ──────────────────────────────────────────────────
 
-def _plot_hileras(df_vista, pol_shapely=None):
+def _dibujar_transversales(ax, df_hileras, l_carpa, angulo_offset=0.0):
+    """Dibuja los cortes transversales proyectados (línea + puntos de cruce) para
+    validar visualmente su posición y ángulo respecto a las hileras."""
+    if not l_carpa or df_hileras.empty:
+        return
+    cortes = transversales_proyectados(df_hileras, l_carpa, angulo_offset)
+    primera_leyenda = True
+    for c in cortes:
+        sx, sy = c["segmento"].xy
+        ax.plot(sx, sy, linewidth=0.6, color="darkorange", linestyle="--", alpha=0.8,
+                 zorder=4, label="Transversal proyectado" if primera_leyenda else None)
+        primera_leyenda = False
+        px = [p[0] for p in c["puntos"]]
+        py = [p[1] for p in c["puntos"]]
+        ax.scatter(px, py, s=4, color="darkorange", alpha=0.8, zorder=6)
+
+
+def _plot_hileras(df_vista, pol_shapely=None, l_carpa=None, angulo_trans=0.0):
     bloques  = df_vista["Bloque"].unique()
     _tab10   = [plt.cm.tab10(i) for i in range(10)]
     colores  = {b: _tab10[i % 10] for i, b in enumerate(bloques)}
@@ -116,6 +143,8 @@ def _plot_hileras(df_vista, pol_shapely=None):
         ax.plot(px, py, color="green", linewidth=1.5,
                 linestyle="--", label="Polígono terreno")
 
+    _dibujar_transversales(ax, df_vista, l_carpa, angulo_trans)
+
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.grid(True)
     ax.legend(title="Bloque / Zona", bbox_to_anchor=(1.01, 1),
@@ -124,7 +153,7 @@ def _plot_hileras(df_vista, pol_shapely=None):
     return fig
 
 
-def _plot_preview(pol_pts, df_hileras, angulo, n_hileras):
+def _plot_preview(pol_pts, df_hileras, angulo, n_hileras, l_carpa=None, angulo_trans=0.0):
     """Polígono + hileras superpuestas. H1 resaltada para identificar punto de inicio."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
@@ -170,6 +199,8 @@ def _plot_preview(pol_pts, df_hileras, angulo, n_hileras):
             arrowprops=dict(arrowstyle="->", color="red", lw=1.5),
             zorder=7,
         )
+
+    _dibujar_transversales(ax, df_hileras, l_carpa, angulo_trans)
 
     ax.set_aspect("equal", adjustable="box")
     ax.set_title(f"Vista previa — ángulo {angulo}°  |  {n_hileras} hileras  |  H1 en rojo")
@@ -274,7 +305,10 @@ if df_raw.empty and poligonos_dxf:
         # Vista previa individual por polígono
         if n_pols > 1:
             st.subheader(f"Vista previa — {sector_nombre}")
-        st.pyplot(_plot_preview(pol_pts, df_pol, angulo_hil, len(df_pol)))
+        st.pyplot(_plot_preview(
+            pol_pts, df_pol, angulo_hil, len(df_pol),
+            l_carpa=sp["l_carpa"], angulo_trans=sp.get("ang_trans", 0.0),
+        ))
         st.caption(
             f"**{sector_nombre}**: {len(df_pol)} hileras · ángulo {angulo_hil}° · "
             f"offset {offset_inicio} m · {'invertida' if invertir else 'normal'}"
@@ -378,6 +412,7 @@ for sec in sectores_activos:
         sp.get("l_trans", 6.0),
         d_hil=sp.get("d_hil", 3.0),
         centrales_adic=sp.get("cent_adic", 0.0),
+        angulo_trans=sp.get("ang_trans", 0.0),
     )
     df_sec_calc["N_hilera"] = range(1, len(df_sec_calc) + 1)
     dfs_calc.append(df_sec_calc)
@@ -418,7 +453,10 @@ st.subheader("Vista visual por sector")
 sector_vista = st.selectbox("Sector a visualizar", sectores_sel)
 df_vista     = df_calc[df_calc["Sector"] == sector_vista]
 
-fig = _plot_hileras(df_vista, pol_shapely)
+sp_vista      = params_sector.get(sector_vista, {})
+l_carpa_vista = sp_vista.get("l_carpa", 12.0)
+ang_trans_vista = sp_vista.get("ang_trans", 0.0)
+fig = _plot_hileras(df_vista, pol_shapely, l_carpa=l_carpa_vista, angulo_trans=ang_trans_vista)
 fig.axes[0].set_title(f"Hileras medidas — {sector_vista}")
 st.pyplot(fig)
 
@@ -438,7 +476,7 @@ params = (
     empresa, rut, encargado, direccion_cliente, mail, celular,
     especie, variedad, superficie_ha, altura_plantas,
     3.0, 2.0, merma_hil, merma_trans,
-    3.0, 12.0, 5.0, 3.0, 0.5, 0.5, -0.3, 0.0, 6.0, 0,
+    3.0, 12.0, 5.0, 3.0, 0.5, 0.5, -0.3, 0.0, 6.0, 0, 0.0,
 )
 excel_bytes = crear_excel(df_calc, df_res, params, params_por_sector=params_sector)
 
