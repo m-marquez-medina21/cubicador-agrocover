@@ -7,6 +7,7 @@ from io import BytesIO
 
 import pandas as pd
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -67,7 +68,8 @@ def _hoja_resumen(wb: Workbook, df_res: pd.DataFrame):
 # ── Hoja por sector ───────────────────────────────────────────────────────────
 
 def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
-                 tot: pd.Series, params: tuple, sec_params: dict | None = None):
+                 tot: pd.Series, params: tuple, sec_params: dict | None = None,
+                 imagen_bytes: bytes | None = None):
     ws = wb.create_sheet(title=sector[:31])
     if sec_params is None:
         sec_params = {}
@@ -234,11 +236,18 @@ def _hoja_sector(wb: Workbook, sector: str, df_sec: pd.DataFrame,
     for i, w in enumerate([10,12,11,12,10,8,12,3,13,10,12,3,14,9,10,12], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
+    # ── Imagen del cuartel (plano + transversales, columna U en adelante) ────
+    if imagen_bytes:
+        img = XLImage(BytesIO(imagen_bytes))
+        img.width, img.height = 760, 560
+        ws.add_image(img, "U2")
+
 
 # ── Punto de entrada público ──────────────────────────────────────────────────
 
 def crear_excel(df_det: pd.DataFrame, df_res: pd.DataFrame, params: tuple,
-                params_por_sector: dict | None = None) -> bytes:
+                params_por_sector: dict | None = None,
+                imagenes_por_sector: dict | None = None) -> bytes:
     wb = Workbook()
     _hoja_resumen(wb, df_res)
 
@@ -247,7 +256,8 @@ def crear_excel(df_det: pd.DataFrame, df_res: pd.DataFrame, params: tuple,
         df_s["N_hilera"] = range(1, len(df_s) + 1)
         tot = df_res[df_res["Sector"] == sector].iloc[0]
         sec_params = (params_por_sector or {}).get(sector, {})
-        _hoja_sector(wb, sector, df_s, tot, params, sec_params)
+        imagen = (imagenes_por_sector or {}).get(sector)
+        _hoja_sector(wb, sector, df_s, tot, params, sec_params, imagen_bytes=imagen)
 
     wb.calculation.fullCalcOnLoad = True
     buf = BytesIO()

@@ -4,7 +4,9 @@
 
 import math
 import tempfile
+from io import BytesIO
 
+import contextily as cx
 import folium
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -109,6 +111,43 @@ def _dibujar_transversales(ax, df_hileras, l_carpa, angulo_offset=0.0):
         px = [p[0] for p in c["puntos"]]
         py = [p[1] for p in c["puntos"]]
         ax.scatter(px, py, s=4, color="darkorange", alpha=0.8, zorder=6)
+
+
+def _generar_imagen_sector_png(df_sec, epsg=None, l_carpa=None, angulo_trans=0.0, pol_shapely=None) -> bytes:
+    """Genera una imagen PNG (hileras + transversales, con satelital si hay EPSG)
+    para incrustar en la hoja del Excel de ese cuartel."""
+    n_h1 = df_sec["N_hilera"].min()
+    fig, ax = plt.subplots(figsize=(9, 6.5))
+
+    for _, row in df_sec.iterrows():
+        xs = [p[0] for p in row["Puntos"]]
+        ys = [p[1] for p in row["Puntos"]]
+        if row["N_hilera"] == n_h1:
+            ax.plot(xs, ys, linewidth=2.2, color="red", zorder=5)
+        else:
+            ax.plot(xs, ys, linewidth=0.8, color="cyan" if epsg else "royalblue", zorder=3)
+
+    if pol_shapely is not None:
+        px, py = pol_shapely.exterior.xy
+        ax.plot(px, py, color="lime" if epsg else "green", linewidth=1.5, zorder=2)
+
+    _dibujar_transversales(ax, df_sec, l_carpa, angulo_trans)
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_title(f"Cuartel: {df_sec['Sector'].iloc[0]}", fontsize=11)
+
+    if epsg:
+        try:
+            cx.add_basemap(ax, crs=f"EPSG:{epsg}", source=cx.providers.Esri.WorldImagery, zorder=-10)
+        except Exception:
+            pass
+
+    plt.tight_layout()
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
 
 
 _TAB10_HEX = [
@@ -356,6 +395,7 @@ if df_raw.empty and poligonos_dxf:
 
     st.sidebar.subheader("Sectores")
     params_sector = {}
+    poligonos_por_sector = {}
     dfs_generados = []
 
     for i_pol, pol_data in enumerate(poligonos_dxf):
@@ -418,6 +458,7 @@ if df_raw.empty and poligonos_dxf:
 
         dfs_generados.append(df_pol)
         params_sector[sector_nombre] = sp
+        poligonos_por_sector[sector_nombre] = pol_pts
 
         # Vista previa individual por polígono
         if n_pols > 1:
@@ -455,6 +496,7 @@ else:
     # ── DXF o KMZ con hileras dibujadas: configuración por sector ─────────────
     st.sidebar.subheader("Sectores")
     params_sector    = {}
+    poligonos_por_sector = {}
     sectores_archivo = sorted(df_raw["Sector"].unique())
     for i_sec, sec in enumerate(sectores_archivo):
         with st.sidebar.expander(f"📍 {sec}", expanded=(i_sec == 0)):
@@ -602,17 +644,39 @@ st.dataframe(df_calc[cols_vista], use_container_width=True)
 
 # ── Descarga Excel ────────────────────────────────────────────────────────────
 
+st.subheader("Exportar")
+
 params = (
     empresa, rut, encargado, direccion_cliente, mail, celular,
     especie, variedad, superficie_ha, altura_plantas,
     3.0, 2.0, merma_hil, merma_trans,
     3.0, 12.0, 5.0, 3.0, 0.5, 0.5, -0.3, 0.0, 6.0, 0, 0.0,
 )
-excel_bytes = crear_excel(df_calc, df_res, params, params_por_sector=params_sector)
 
-st.download_button(
-    label="Descargar cubicación en Excel",
-    data=excel_bytes,
-    file_name="cubicacion_agrocover.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
+if st.button("Generar Excel con imagen por cuartel"):
+    with st.spinner("Generando imágenes por cuartel (incluye satelital, puede tardar unos segundos)..."):
+        imagenes_por_sector = {}
+        for sec in sectores_activos:
+            df_sec_calc = df_calc[df_calc["Sector"] == sec]
+            sp_sec      = params_sector.get(sec, {})
+            pol_sec_pts = poligonos_por_sector.get(sec)
+            pol_sec     = Polygon(pol_sec_pts) if pol_sec_pts else pol_shapely
+            imagenes_por_sector[sec] = _generar_imagen_sector_png(
+                df_sec_calc, epsg=epsg_kmz,
+                l_carpa=sp_sec.get("l_carpa", 12.0),
+                angulo_trans=sp_sec.get("ang_trans", 0.0),
+                pol_shapely=pol_sec,
+            )
+        st.session_state["excel_bytes"] = crear_excel(
+            df_calc, df_res, params, params_por_sector=params_sector,
+            imagenes_por_sector=imagenes_por_sector,
+        )
+    st.success("Excel generado.")
+
+if st.session_state.get("excel_bytes"):
+    st.download_button(
+        label="Descargar cubicación en Excel",
+        data=st.session_state["excel_bytes"],
+        file_name="cubicacion_agrocover.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
