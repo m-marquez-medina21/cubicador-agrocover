@@ -6,11 +6,12 @@ import math
 import tempfile
 from io import BytesIO
 
-import contextily as cx
 import folium
 import matplotlib.pyplot as plt
 import pandas as pd
+import requests
 import streamlit as st
+from PIL import Image
 from pyproj import Transformer
 from shapely.geometry import LineString, Polygon
 from streamlit_folium import folium_static
@@ -113,6 +114,79 @@ def _dibujar_transversales(ax, df_hileras, l_carpa, angulo_offset=0.0):
         ax.scatter(px, py, s=4, color="darkorange", alpha=0.8, zorder=6)
 
 
+_TILE_SIZE = 256
+_TILE_URL  = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+
+
+def _lonlat_a_tile_xy(lon, lat, zoom):
+    lat_rad = math.radians(lat)
+    n = 2 ** zoom
+    x = (lon + 180.0) / 360.0 * n
+    y = (1.0 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2.0 * n
+    return x, y
+
+
+def _tile_xy_a_lonlat(x, y, zoom):
+    n = 2 ** zoom
+    lon = x / n * 360.0 - 180.0
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    return lon, lat
+
+
+def _agregar_satelital(ax, epsg, max_zoom=18, max_teselas=64):
+    """Descarga y compone teselas satelitales (Esri, XYZ) como fondo del eje.
+    No depende de GDAL/rasterio (a diferencia de contextily) — más liviano y
+    confiable para desplegar en Streamlit Community Cloud."""
+    if not epsg:
+        return
+    try:
+        a_wgs84 = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
+        a_utm   = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+        lon1, lat1 = a_wgs84.transform(xmin, ymin)
+        lon2, lat2 = a_wgs84.transform(xmax, ymax)
+        lon_lo, lon_hi = min(lon1, lon2), max(lon1, lon2)
+        lat_lo, lat_hi = min(lat1, lat2), max(lat1, lat2)
+
+        zoom = max_zoom
+        for z in range(max_zoom, 0, -1):
+            tx0, ty0 = _lonlat_a_tile_xy(lon_lo, lat_hi, z)
+            tx1, ty1 = _lonlat_a_tile_xy(lon_hi, lat_lo, z)
+            n_x = math.floor(tx1) - math.floor(tx0) + 1
+            n_y = math.floor(ty1) - math.floor(ty0) + 1
+            if n_x * n_y <= max_teselas:
+                zoom = z
+                break
+
+        tx0, ty0 = _lonlat_a_tile_xy(lon_lo, lat_hi, zoom)
+        tx1, ty1 = _lonlat_a_tile_xy(lon_hi, lat_lo, zoom)
+        x0, x1 = math.floor(tx0), math.floor(tx1)
+        y0, y1 = math.floor(ty0), math.floor(ty1)
+
+        mosaico = Image.new("RGB", ((x1 - x0 + 1) * _TILE_SIZE, (y1 - y0 + 1) * _TILE_SIZE), (225, 225, 225))
+        for tx in range(x0, x1 + 1):
+            for ty in range(y0, y1 + 1):
+                url = _TILE_URL.format(z=zoom, x=tx, y=ty)
+                try:
+                    resp   = requests.get(url, timeout=6, headers={"User-Agent": "cubicador-agrocover"})
+                    tesela = Image.open(BytesIO(resp.content)).convert("RGB")
+                except Exception:
+                    tesela = Image.new("RGB", (_TILE_SIZE, _TILE_SIZE), (210, 210, 210))
+                mosaico.paste(tesela, ((tx - x0) * _TILE_SIZE, (ty - y0) * _TILE_SIZE))
+
+        lon_izq, lat_arriba = _tile_xy_a_lonlat(x0, y0, zoom)
+        lon_der, lat_abajo  = _tile_xy_a_lonlat(x1 + 1, y1 + 1, zoom)
+        ux0, uy0 = a_utm.transform(lon_izq, lat_abajo)
+        ux1, uy1 = a_utm.transform(lon_der, lat_arriba)
+
+        ax.imshow(mosaico, extent=[ux0, ux1, uy0, uy1], zorder=-10, aspect="auto")
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+    except Exception:
+        pass
+
+
 def _generar_imagen_sector_png(df_sec, epsg=None, l_carpa=None, angulo_trans=0.0, pol_shapely=None) -> bytes:
     """Genera una imagen PNG (hileras + transversales, con satelital si hay EPSG)
     para incrustar en la hoja del Excel de ese cuartel."""
@@ -138,10 +212,7 @@ def _generar_imagen_sector_png(df_sec, epsg=None, l_carpa=None, angulo_trans=0.0
     ax.set_title(f"Cuartel: {df_sec['Sector'].iloc[0]}", fontsize=11)
 
     if epsg:
-        try:
-            cx.add_basemap(ax, crs=f"EPSG:{epsg}", source=cx.providers.Esri.WorldImagery, zorder=-10)
-        except Exception:
-            pass
+        _agregar_satelital(ax, epsg)
 
     plt.tight_layout()
     buf = BytesIO()
